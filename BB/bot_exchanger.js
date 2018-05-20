@@ -5,7 +5,7 @@ const conf = require('byteballcore/conf');
 const db = require('byteballcore/db');
 const notifications = require('./notifications');
 const mutex = require('byteballcore/mutex.js');
-const tokens = require('./tokens');
+const tx = require('./tx');
 var async = require("async");
 const Web3 = require('web3');
 const BigNumber = require('bignumber.js');
@@ -153,7 +153,7 @@ eventBus.once('exchange_ready', () => {
                         function () {
                             if (lockUnits.length > 0) {
                                 for (var k = 0; k < lockUnits.length; k++) {
-                                    tokens.send(from_address, lockUnits[k].amount, lockUnits[k].unit);
+                                    lockTokens(from_address, lockUnits[k].amount, lockUnits[k].unit);
                                 }
                             } else {
                                 return device.sendMessageToDevice(from_address, 'text', 'You don\'t have enough tokens to exchange.\n');
@@ -199,6 +199,66 @@ readOrAssignReceivingAddress = (device_address, cb) => {
         });
     });
 };
+
+function lockTokens(from_address, tokens, unit) {
+    var device = require('byteballcore/device.js');
+
+    checkUserAddress(from_address, PLATFORM_ID, (bEthereumAddressKnown, knownEthereumAddress, userAddressId) => {
+        if (bEthereumAddressKnown) {
+            readOrAssignReceivingAddress(from_address, receivingAddress => {
+                headlessWallet.readSingleAddress(to_address => {
+                    const divisibleAsset = require('byteballcore/divisible_asset.js');
+                    const network = require('byteballcore/network');
+
+                    let arrOutputs = [];
+                    var commission, tmp_commission_address, exchange_rate;
+
+                    tmp_commission_address = conf.altTokensParams[unit].commission_address;
+                    commission = conf.altTokensParams[unit].EXCHANGE_COMMISSION;
+                    exchange_rate = conf.altTokensParams[unit].EXCHANGE_RATE_BB_TO_ERC20;
+
+                    if (commission >= tokens) {
+                        return false;
+                    }
+
+                    tokens = tokens - commission;
+                    arrOutputs.push({amount: tokens, address: to_address});
+                    if (commission > 0) {
+                        arrOutputs.push({amount: commission, address: tmp_commission_address });
+                    }
+
+                    divisibleAsset.composeAndSaveDivisibleAssetPaymentJoint({
+                        asset: unit,
+                        paying_addresses: [receivingAddress],
+                        fee_paying_addresses: [to_address],
+                        change_address: to_address,
+                        asset_outputs: arrOutputs,
+                        signer: headlessWallet.signer,
+                        callbacks: {
+                            ifError: onError,
+                            ifNotEnoughFunds: onError,
+                            ifOk: (objJoint) => {
+                                network.broadcastJoint(objJoint);
+                                tx.save({
+                                    userAddressId: userAddressId,
+                                    objJoint: objJoint,
+                                    objJoint: from_address,
+                                    unit: unit,
+                                    tokens: tokens,
+                                    to_address: to_address,
+                                    knownEthereumAddress: knownEthereumAddress,
+                                    receivingAddress: receivingAddress
+                                }, (err) => {
+                                    sendInfoToDevice(from_address, PLATFORM_ID);
+                                });
+                            }
+                        }
+                    });
+                });
+            } );
+        }
+    });
+}
 
 function onError(err) {
     console.error('Error: ', err);

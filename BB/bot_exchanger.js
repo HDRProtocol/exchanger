@@ -112,7 +112,6 @@ eventBus.once('exchange_ready', () => {
         let lcText = text.toLowerCase();
 
         if (Web3.utils.isAddress(lcText)) {
-
             connection.query('INSERT INTO user_address (device_address, platform_id, address, created_at) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE address=?, updated_at=?', [from_address, PLATFORM_ID, text, CURRENT_TIMESTAMP, text, CURRENT_TIMESTAMP], (error) => {
 
                 if (!error) {
@@ -122,8 +121,6 @@ eventBus.once('exchange_ready', () => {
                 }
                 sendInfoToDevice(from_address, PLATFORM_ID);
             });
-
-
             return;
         }
 
